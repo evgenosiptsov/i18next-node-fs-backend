@@ -1,5 +1,6 @@
 import * as utils from './utils';
 import fs from 'fs';
+import request from 'request';
 import path from 'path';
 import JSON5 from 'json5';
 import YAML from 'js-yaml';
@@ -12,11 +13,45 @@ function getDefaults() {
   };
 }
 
+function parseData(data, extension) {
+  data = data.replace(/^\uFEFF/, '');
+  switch(extension) {
+    case '.json5':
+      result = JSON5.parse(data);
+      break;
+    case '.yml':
+    case '.yaml':
+      result = YAML.safeLoad(data);
+      break;
+    default:
+      result = JSON.parse(data);
+  }
+  return result;
+}
+
 function readFile(filename, callback) {
   const extension = path.extname(filename);
+  const isUrl = /^\http[s]{0,1}:/.test(filename);
   let result;
 
-  if (/^\.(js|ts)$/.test(extension)) {
+  if (isUrl) {
+    request.get({
+      "rejectUnauthorized": false,
+      url: filename
+    }, function (err, resp, data) {
+      if (err) {
+        callback(err);
+      } else {
+        try {
+          result = parseData(data, extension)
+        } catch (err) {
+          err.message = 'error parsing ' + filename + ': ' + err.message;
+          return callback(err);
+        }
+        callback(null, result);
+      }
+    });
+  } else if (/^\.(js|ts)$/.test(extension)) {
     try {
       const file = require(filename);
       result = file.default ? file.default : file;
@@ -35,18 +70,7 @@ function readFile(filename, callback) {
         callback(err);
       } else {
         try {
-          data = data.replace(/^\uFEFF/, '');
-          switch(extension) {
-            case '.json5':
-              result = JSON5.parse(data);
-              break;
-            case '.yml':
-            case '.yaml':
-              result = YAML.safeLoad(data);
-              break;
-            default:
-              result = JSON.parse(data);
-          }
+          result = parseData(data, extension)
         } catch (err) {
           err.message = 'error parsing ' + filename + ': ' + err.message;
           return callback(err);
